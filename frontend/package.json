@@ -1,0 +1,16 @@
+{
+  "name": "kanban-frontend",
+  "version": "1.0.0",
+  "description": "Giao dien Kanban va proxy API cho task-service, stats-service",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "test": "node --test"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "dependencies": {
+    "express": "^4.21.2"
+  }
+}

@@ -1,0 +1,184 @@
+name: Kanban CI/CD
+
+on:
+  pull_request:
+    branches:
+      - main
+  push:
+    branches:
+      - main
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_PREFIX: ghcr.io/${{ github.repository_owner }}
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  # ── CI: chay tren runner cua GitHub ────────────────────────────────────────
+  test:
+    name: Unit test
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Cai Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Cai Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Test task-service
+        working-directory: task-service
+        run: |
+          pip install --disable-pip-version-check -r requirements-dev.txt
+          pytest --cov=app --cov-report=xml --cov-report=term
+
+      - name: Test stats-service
+        working-directory: stats-service
+        run: |
+          pip install --disable-pip-version-check -r requirements-dev.txt
+          pytest --cov=app --cov-report=xml --cov-report=term
+
+      - name: Test frontend
+        working-directory: frontend
+        run: |
+          npm install
+          npm test
+
+      - name: Luu coverage cho SonarCloud
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage
+          path: |
+            task-service/coverage.xml
+            stats-service/coverage.xml
+          retention-days: 1
+
+  sonarcloud:
+    name: SonarCloud scan
+    needs: test
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Tai coverage
+        uses: actions/download-artifact@v4
+        with:
+          name: coverage
+
+      - name: SonarCloud scan
+        uses: SonarSource/sonarqube-scan-action@v5
+        env:
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+
+  build-push:
+    name: Build va push images
+    needs:
+      - test
+      - sonarcloud
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        service:
+          - frontend
+          - task-service
+          - stats-service
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Login GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build image
+        run: |
+          docker build \
+            -t ${{ env.IMAGE_PREFIX }}/kanban-${{ matrix.service }}:${{ github.sha }} \
+            -t ${{ env.IMAGE_PREFIX }}/kanban-${{ matrix.service }}:latest \
+            ${{ matrix.service }}
+
+      - name: Trivy scan image
+        uses: aquasecurity/trivy-action@0.28.0
+        with:
+          image-ref: ${{ env.IMAGE_PREFIX }}/kanban-${{ matrix.service }}:${{ github.sha }}
+          format: table
+          severity: HIGH,CRITICAL
+          exit-code: "0"
+
+      - name: Push image
+        run: |
+          docker push ${{ env.IMAGE_PREFIX }}/kanban-${{ matrix.service }}:${{ github.sha }}
+          docker push ${{ env.IMAGE_PREFIX }}/kanban-${{ matrix.service }}:latest
+
+  # ── CD: chay tren self-hosted runner (may ca nhan co cluster kind) ────────
+  deploy:
+    name: Deploy len Kubernetes (kind)
+    needs: build-push
+    if: github.event_name == 'push'
+    runs-on: self-hosted
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Login GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Pull va nap images vao kind
+        run: |
+          for svc in frontend task-service stats-service; do
+            docker pull "$IMAGE_PREFIX/kanban-$svc:$GITHUB_SHA"
+            kind load docker-image "$IMAGE_PREFIX/kanban-$svc:$GITHUB_SHA" --name kanban
+          done
+
+      - name: Apply manifests
+        run: |
+          kubectl apply -f k8s/namespace.yaml
+          kubectl apply -f k8s/
+
+      - name: Cap nhat image theo commit
+        run: |
+          kubectl -n kanban set image deployment/frontend \
+            frontend="$IMAGE_PREFIX/kanban-frontend:$GITHUB_SHA"
+          kubectl -n kanban set image deployment/task-service \
+            task-service="$IMAGE_PREFIX/kanban-task-service:$GITHUB_SHA"
+          kubectl -n kanban set image deployment/stats-service \
+            stats-service="$IMAGE_PREFIX/kanban-stats-service:$GITHUB_SHA"
+
+      - name: Cho rollout hoan tat
+        run: |
+          kubectl -n kanban rollout status deployment/redis --timeout=120s
+          kubectl -n kanban rollout status deployment/task-service --timeout=120s
+          kubectl -n kanban rollout status deployment/stats-service --timeout=120s
+          kubectl -n kanban rollout status deployment/frontend --timeout=120s
+
+      - name: Smoke test
+        run: |
+          sleep 5
+          curl -sf http://localhost:30080/health
+          curl -sf http://localhost:30080/api/tasks
+          curl -sf http://localhost:30080/api/stats
+          echo "Smoke test PASSED"
+
+      - name: Trang thai cluster
+        if: always()
+        run: kubectl -n kanban get pods,svc -o wide

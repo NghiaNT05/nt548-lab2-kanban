@@ -1,0 +1,215 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Kanban Board — NT548</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: 'Segoe UI', system-ui, sans-serif;
+      background: linear-gradient(135deg, #1e3a5f 0%, #2d1b4e 100%);
+      min-height: 100vh;
+      padding: 24px;
+      color: #e8e8e8;
+    }
+    header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      flex-wrap: wrap;
+      gap: 12px;
+      margin-bottom: 20px;
+    }
+    h1 { font-size: 1.5rem; letter-spacing: 0.5px; }
+    #stats {
+      display: flex;
+      gap: 16px;
+      font-size: 0.9rem;
+      background: rgba(255, 255, 255, 0.08);
+      padding: 8px 16px;
+      border-radius: 8px;
+    }
+    #stats strong { color: #7dd3fc; }
+    form {
+      display: flex;
+      gap: 8px;
+      margin-bottom: 20px;
+      flex-wrap: wrap;
+    }
+    input, select, button {
+      padding: 10px 14px;
+      border-radius: 8px;
+      border: none;
+      font-size: 0.95rem;
+    }
+    input { flex: 1; min-width: 200px; }
+    button {
+      background: #38bdf8;
+      color: #0b1220;
+      font-weight: 600;
+      cursor: pointer;
+    }
+    button:hover { background: #7dd3fc; }
+    .board {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 16px;
+    }
+    .column {
+      background: rgba(255, 255, 255, 0.07);
+      border-radius: 12px;
+      padding: 14px;
+      min-height: 320px;
+    }
+    .column h2 {
+      font-size: 1rem;
+      text-transform: uppercase;
+      letter-spacing: 1px;
+      margin-bottom: 12px;
+      padding-bottom: 8px;
+      border-bottom: 2px solid;
+    }
+    .column[data-column="todo"]  h2 { border-color: #f87171; color: #fca5a5; }
+    .column[data-column="doing"] h2 { border-color: #facc15; color: #fde047; }
+    .column[data-column="done"]  h2 { border-color: #4ade80; color: #86efac; }
+    .column.drag-over { outline: 2px dashed #38bdf8; outline-offset: -4px; }
+    .card {
+      background: rgba(255, 255, 255, 0.95);
+      color: #1e293b;
+      border-radius: 8px;
+      padding: 10px 12px;
+      margin-bottom: 10px;
+      cursor: grab;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 8px;
+      box-shadow: 0 2px 6px rgba(0, 0, 0, 0.25);
+    }
+    .card button {
+      background: transparent;
+      color: #94a3b8;
+      padding: 2px 6px;
+      font-size: 1rem;
+    }
+    .card button:hover { color: #ef4444; background: transparent; }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>📋 Kanban Board — NT548 Lab</h1>
+    <div id="stats">Đang tải thống kê...</div>
+  </header>
+
+  <form id="add-form">
+    <input id="title" type="text" placeholder="Nhập công việc mới..." required>
+    <select id="column">
+      <option value="todo">To Do</option>
+      <option value="doing">Doing</option>
+      <option value="done">Done</option>
+    </select>
+    <button type="submit">+ Thêm task</button>
+  </form>
+
+  <div class="board">
+    <div class="column" data-column="todo"><h2>To Do</h2><div class="cards"></div></div>
+    <div class="column" data-column="doing"><h2>Doing</h2><div class="cards"></div></div>
+    <div class="column" data-column="done"><h2>Done</h2><div class="cards"></div></div>
+  </div>
+
+  <script>
+    async function fetchJson(url, options) {
+      const res = await fetch(url, options);
+      if (!res.ok) throw new Error(`${url} -> ${res.status}`);
+      return res.json();
+    }
+
+    async function refresh() {
+      try {
+        const [tasks, stats] = await Promise.all([
+          fetchJson('/api/tasks'),
+          fetchJson('/api/stats'),
+        ]);
+        render(tasks);
+        renderStats(stats);
+      } catch (err) {
+        document.getElementById('stats').textContent = 'Không kết nối được backend';
+      }
+    }
+
+    function render(tasks) {
+      document.querySelectorAll('.cards').forEach((el) => { el.innerHTML = ''; });
+      for (const task of tasks) {
+        const card = document.createElement('div');
+        card.className = 'card';
+        card.draggable = true;
+        card.dataset.id = task.id;
+
+        const span = document.createElement('span');
+        span.textContent = task.title;
+        const del = document.createElement('button');
+        del.textContent = '✕';
+        del.title = 'Xóa task';
+        del.onclick = () => removeTask(task.id);
+
+        card.append(span, del);
+        card.addEventListener('dragstart', (e) => {
+          e.dataTransfer.setData('text/plain', task.id);
+        });
+        document.querySelector(`.column[data-column="${task.column}"] .cards`).append(card);
+      }
+    }
+
+    function renderStats(stats) {
+      const c = stats.columns;
+      document.getElementById('stats').innerHTML =
+        `Tổng: <strong>${stats.total}</strong> · ` +
+        `To Do: <strong>${c.todo}</strong> · ` +
+        `Doing: <strong>${c.doing}</strong> · ` +
+        `Done: <strong>${c.done}</strong>`;
+    }
+
+    async function removeTask(id) {
+      await fetch(`/api/tasks/${id}`, { method: 'DELETE' });
+      refresh();
+    }
+
+    document.getElementById('add-form').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const title = document.getElementById('title').value.trim();
+      const column = document.getElementById('column').value;
+      if (!title) return;
+      await fetch('/api/tasks', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ title, column }),
+      });
+      document.getElementById('title').value = '';
+      refresh();
+    });
+
+    document.querySelectorAll('.column').forEach((col) => {
+      col.addEventListener('dragover', (e) => {
+        e.preventDefault();
+        col.classList.add('drag-over');
+      });
+      col.addEventListener('dragleave', () => col.classList.remove('drag-over'));
+      col.addEventListener('drop', async (e) => {
+        e.preventDefault();
+        col.classList.remove('drag-over');
+        const id = e.dataTransfer.getData('text/plain');
+        await fetch(`/api/tasks/${id}`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ column: col.dataset.column }),
+        });
+        refresh();
+      });
+    });
+
+    refresh();
+    setInterval(refresh, 5000);
+  </script>
+</body>
+</html>
