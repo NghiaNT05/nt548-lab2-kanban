@@ -1,0 +1,20 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: kanban
+  namespace: argocd
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/NghiaNT05/nt548-lab2-kanban.git
+    targetRevision: main
+    path: k8s
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: kanban
+  syncPolicy:
+    automated:
+      prune: true      # xoa resource khong con trong git
+      selfHeal: true   # tu sua khi co thay doi ngoai git (kubectl edit tay)
+    syncOptions:
+      - CreateNamespace=true

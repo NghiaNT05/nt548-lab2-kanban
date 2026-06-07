@@ -126,59 +126,29 @@ jobs:
           docker push ${{ env.IMAGE_PREFIX }}/kanban-${{ matrix.service }}:${{ github.sha }}
           docker push ${{ env.IMAGE_PREFIX }}/kanban-${{ matrix.service }}:latest
 
-  # ── CD: chay tren self-hosted runner (may ca nhan co cluster kind) ────────
-  deploy:
-    name: Deploy len Kubernetes (kind)
+  # ── CD theo GitOps: cap nhat image tag trong git, ArgoCD tu sync ──────────
+  update-manifests:
+    name: Cap nhat manifests cho ArgoCD
     needs: build-push
     if: github.event_name == 'push'
-    runs-on: self-hosted
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-
-      - name: Login GHCR
-        uses: docker/login-action@v3
         with:
-          registry: ${{ env.REGISTRY }}
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
+          ref: main
 
-      - name: Pull va nap images vao kind
+      - name: Cap nhat image tag theo commit SHA
         run: |
-          for svc in frontend task-service stats-service; do
-            docker pull "$IMAGE_PREFIX/kanban-$svc:$GITHUB_SHA"
-            kind load docker-image "$IMAGE_PREFIX/kanban-$svc:$GITHUB_SHA" --name kanban
-          done
+          sed -i "s/newTag: .*/newTag: ${GITHUB_SHA}/" k8s/kustomization.yaml
+          git diff k8s/kustomization.yaml
 
-      - name: Apply manifests
+      - name: Commit va push thay doi
         run: |
-          kubectl apply -f k8s/namespace.yaml
-          kubectl apply -f k8s/
-
-      - name: Cap nhat image theo commit
-        run: |
-          kubectl -n kanban set image deployment/frontend \
-            frontend="$IMAGE_PREFIX/kanban-frontend:$GITHUB_SHA"
-          kubectl -n kanban set image deployment/task-service \
-            task-service="$IMAGE_PREFIX/kanban-task-service:$GITHUB_SHA"
-          kubectl -n kanban set image deployment/stats-service \
-            stats-service="$IMAGE_PREFIX/kanban-stats-service:$GITHUB_SHA"
-
-      - name: Cho rollout hoan tat
-        run: |
-          kubectl -n kanban rollout status deployment/redis --timeout=120s
-          kubectl -n kanban rollout status deployment/task-service --timeout=120s
-          kubectl -n kanban rollout status deployment/stats-service --timeout=120s
-          kubectl -n kanban rollout status deployment/frontend --timeout=120s
-
-      - name: Smoke test
-        run: |
-          sleep 5
-          curl -sf http://localhost:30080/health
-          curl -sf http://localhost:30080/api/tasks
-          curl -sf http://localhost:30080/api/stats
-          echo "Smoke test PASSED"
-
-      - name: Trang thai cluster
-        if: always()
-        run: kubectl -n kanban get pods,svc -o wide
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add k8s/kustomization.yaml
+          git commit -m "Deploy ${GITHUB_SHA} [skip ci]"
+          git push origin main

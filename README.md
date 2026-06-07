@@ -29,27 +29,32 @@ Cloud) kiểm tra chất lượng mã và Trivy quét bảo mật image.
 Mỗi service có Dockerfile và unit test riêng (`pytest` cho Python,
 `node --test` cho Node).
 
-## Pipeline CI/CD (`.github/workflows/cicd.yml`)
+## Pipeline CI/CD theo GitOps (`.github/workflows/cicd.yml`)
 
 ```text
-push main ──► test ──► sonarcloud ──► build-push (x3 service) ──► deploy
-              │            │             │  build image            │
-  unit test 3 service   SonarCloud      │  Trivy scan             │
-  + coverage            Quality Gate    │  push GHCR              │
-                                        ▼                          ▼
-                              GitHub-hosted runner       self-hosted runner
-                                                         (máy có cluster kind)
+push main ──► test ──► sonarcloud ──► build-push (x3) ──► update-manifests
+              │            │             │ build image       │ sửa newTag trong
+  unit test 3 service   SonarCloud      │ Trivy scan        │ k8s/kustomization.yaml
+  + coverage            Quality Gate    │ push GHCR         │ commit [skip ci]
+                                                                  │
+                              ┌───────────────────────────────────┘
+                              ▼ (pull-based)
+                  ArgoCD trong cluster kind theo dõi repo
+                  └── tự sync manifests + pull image mới từ GHCR
 ```
 
 - **test**: chạy unit test cả 3 service, xuất coverage cho SonarCloud.
 - **sonarcloud**: quét chất lượng mã trên SonarCloud (bản cloud của SonarQube).
 - **build-push**: build Docker image từng service (matrix), quét lỗ hổng bằng
   Trivy, push lên GitHub Container Registry với tag là commit SHA và `latest`.
-- **deploy**: chạy trên self-hosted runner — pull image, nạp vào cluster kind,
-  `kubectl apply` manifests, chờ rollout rồi smoke test qua NodePort.
+- **update-manifests**: cập nhật `newTag` trong `k8s/kustomization.yaml` theo
+  commit SHA rồi commit lại repo (`[skip ci]` để không kích hoạt lại pipeline).
+- **ArgoCD** (không phải job của workflow): chạy trong cluster, phát hiện
+  commit thay đổi manifests và tự đồng bộ — mô hình GitOps pull-based, git là
+  nguồn chân lý duy nhất của trạng thái cluster.
 
-Pull request chỉ chạy test + SonarCloud; build và deploy chỉ chạy khi push
-vào `main`.
+Pull request chỉ chạy test + SonarCloud; build và update manifests chỉ chạy
+khi push vào `main`.
 
 ## Chuẩn bị
 
@@ -82,16 +87,32 @@ Port 30080 được map ra máy host để truy cập frontend qua NodePort.
 4. Tạo token (My Account → Security) và thêm vào GitHub repo secret
    `SONAR_TOKEN`.
 
-### 3. Self-hosted runner
-
-Vào **Settings → Actions → Runners → New self-hosted runner**, làm theo
-hướng dẫn cho Linux x64. Máy chạy runner cần có sẵn: `docker`, `kind`,
-`kubectl` (context `kind-kanban`).
+### 3. ArgoCD (GitOps)
 
 ```bash
-./config.sh --url https://github.com/<owner>/<repo> --token <token>
-./run.sh
+kubectl create namespace argocd
+kubectl apply -n argocd --server-side \
+  -f https://raw.githubusercontent.com/argoproj/argo-cd/stable/manifests/install.yaml
+
+# Dang ky ung dung kanban voi ArgoCD
+kubectl apply -f argocd/application.yaml
 ```
+
+Mở giao diện ArgoCD:
+
+```bash
+kubectl -n argocd port-forward svc/argocd-server 8081:443
+# user: admin, mat khau:
+kubectl -n argocd get secret argocd-initial-admin-secret \
+  -o jsonpath='{.data.password}' | base64 -d
+```
+
+### 4. Cho phép cluster pull image từ GHCR
+
+Sau lần push image đầu tiên, vào trang GitHub → Packages → từng package
+(`kanban-frontend`, `kanban-task-service`, `kanban-stats-service`) →
+**Package settings → Change visibility → Public** để kubelet pull được image
+mà không cần imagePullSecret.
 
 ## Chạy thử local (không cần CI)
 
