@@ -3,6 +3,11 @@ name: CI checks
 
 on:
   workflow_call:
+    inputs:
+      wait_for_gate:
+        description: Chan build neu Quality Gate do (dung cho PR va main)
+        type: boolean
+        default: false
 
 jobs:
   test:
@@ -80,5 +85,7 @@ jobs:
 
       - name: SonarCloud scan
         uses: SonarSource/sonarqube-scan-action@v5
+        with:
+          args: -Dsonar.qualitygate.wait=${{ inputs.wait_for_gate }}
         env:
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}

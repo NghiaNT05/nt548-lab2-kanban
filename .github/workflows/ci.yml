@@ -19,6 +19,8 @@ permissions:
 jobs:
   checks:
     uses: ./.github/workflows/_ci-checks.yml
+    with:
+      wait_for_gate: true   # PR/main: Quality Gate do -> chan
     secrets: inherit
 
   build-check:
