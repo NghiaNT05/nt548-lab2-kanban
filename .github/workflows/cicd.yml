@@ -15,7 +15,6 @@ env:
 
 permissions:
   contents: read
-  packages: write
 
 jobs:
   # ── CI: chay tren runner cua GitHub ────────────────────────────────────────
@@ -104,6 +103,9 @@ jobs:
       - sonarcloud
     if: github.event_name == 'push'
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
     strategy:
       matrix:
         service:

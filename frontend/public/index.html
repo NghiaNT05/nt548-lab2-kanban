@@ -134,7 +134,8 @@
         render(tasks);
         renderStats(stats);
       } catch (err) {
-        document.getElementById('stats').textContent = 'Không kết nối được backend';
+        document.getElementById('stats').textContent =
+          `Không kết nối được backend: ${err.message}`;
       }
     }
 

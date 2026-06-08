@@ -21,6 +21,20 @@ def get_redis():
     )
 
 
+def apply_updates(task, data):
+    """Ap cac thay doi hop le len task. Tra ve (task, error_message)."""
+    if "column" in data:
+        if data["column"] not in VALID_COLUMNS:
+            return None, f"column must be one of {VALID_COLUMNS}"
+        task["column"] = data["column"]
+    if "title" in data:
+        title = (data["title"] or "").strip()
+        if not title:
+            return None, "title is required"
+        task["title"] = title
+    return task, None
+
+
 def create_app(redis_client=None):
     """App factory: cho phep truyen fakeredis khi test."""
     app = Flask(__name__)
@@ -64,17 +78,9 @@ def create_app(redis_client=None):
             return jsonify(error="task not found"), 404
 
         data = request.get_json(silent=True) or {}
-        task = json.loads(raw)
-
-        if "column" in data:
-            if data["column"] not in VALID_COLUMNS:
-                return jsonify(error=f"column must be one of {VALID_COLUMNS}"), 400
-            task["column"] = data["column"]
-        if "title" in data:
-            title = (data["title"] or "").strip()
-            if not title:
-                return jsonify(error="title is required"), 400
-            task["title"] = title
+        task, error = apply_updates(json.loads(raw), data)
+        if error:
+            return jsonify(error=error), 400
 
         client.hset(TASKS_KEY, task_id, json.dumps(task))
         return jsonify(task)

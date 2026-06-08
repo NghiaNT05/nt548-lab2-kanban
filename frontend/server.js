@@ -1,14 +1,18 @@
 // frontend: phuc vu giao dien Kanban va proxy request /api sang cac service phia sau.
 const express = require('express');
-const path = require('path');
+const path = require('node:path');
 
 const TASK_SERVICE_URL = process.env.TASK_SERVICE_URL || 'http://localhost:5001';
 const STATS_SERVICE_URL = process.env.STATS_SERVICE_URL || 'http://localhost:5002';
 const PORT = process.env.PORT || 3000;
 
-// Ghep URL goc cua service voi duong dan goc cua request.
+// Ghep URL service voi DUONG DAN da chuan hoa cua request.
+// Chi lay pathname + query tu URL goc de tranh SSRF (khong cho ghi de host).
 function buildTargetUrl(baseUrl, originalUrl) {
-  return new URL(originalUrl, baseUrl).toString();
+  const base = new URL(baseUrl);
+  const requested = new URL(originalUrl, base);
+  const target = new URL(requested.pathname + requested.search, base);
+  return target.toString();
 }
 
 // Chuyen tiep request sang service dich va tra nguyen ven ket qua.

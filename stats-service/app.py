@@ -21,7 +21,7 @@ def get_redis():
 
 def count_by_column(tasks):
     """Dem so task trong moi cot; cot khong co task van tra ve 0."""
-    counts = {column: 0 for column in COLUMNS}
+    counts = dict.fromkeys(COLUMNS, 0)
     for task in tasks:
         column = task.get("column")
         if column in counts:
