@@ -1,24 +1,21 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: stats-service
-  namespace: kanban
+  name: task-service
 spec:
   replicas: 1
   selector:
     matchLabels:
-      app: stats-service
+      app: task-service
   template:
     metadata:
       labels:
-        app: stats-service
+        app: task-service
     spec:
-      # Tat bien moi truong service-link (REDIS_PORT=tcp://...) de khong de len config cua app
       enableServiceLinks: false
       containers:
-        - name: stats-service
-          image: ghcr.io/nghiant05/kanban-stats-service:latest
-          imagePullPolicy: IfNotPresent
+        - name: task-service
+          image: ghcr.io/nghiant05/kanban-task-service
           ports:
             - containerPort: 5000
           env:
@@ -46,11 +43,10 @@ spec:
 apiVersion: v1
 kind: Service
 metadata:
-  name: stats-service
-  namespace: kanban
+  name: task-service
 spec:
   selector:
-    app: stats-service
+    app: task-service
   ports:
     - port: 5000
       targetPort: 5000

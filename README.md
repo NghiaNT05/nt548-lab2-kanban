@@ -29,32 +29,55 @@ Cloud) kiểm tra chất lượng mã và Trivy quét bảo mật image.
 Mỗi service có Dockerfile và unit test riêng (`pytest` cho Python,
 `node --test` cho Node).
 
-## Pipeline CI/CD theo GitOps (`.github/workflows/cicd.yml`)
+## Mô hình nhánh (Git Flow) và môi trường
+
+| Nhánh | Môi trường | Namespace | NodePort | Triển khai |
+| --- | --- | --- | --- | --- |
+| `feature/*` | — | — | — | chỉ CI (test, build thử, Trivy) |
+| `develop` | dev | `kanban-dev` | 30080 | tự deploy khi merge |
+| `main` | production | `kanban-prod` | 30090 | tự deploy khi merge (main = nhánh release) |
+| `hotfix/*` | — | — | — | chỉ CI |
+
+Luồng: `feature/*` → PR vào `develop` → kiểm tra trên dev → PR `develop` vào
+`main` → deploy prod. Khi phát hành chính thức thì gắn tag `vX.Y.Z` trên `main`.
+
+## Pipeline (3 workflow + 1 reusable)
 
 ```text
-push main ──► test ──► sonarcloud ──► build-push (x3) ──► update-manifests
-              │            │             │ build image       │ sửa newTag trong
-  unit test 3 service   SonarCloud      │ Trivy scan        │ k8s/kustomization.yaml
-  + coverage            Quality Gate    │ push GHCR         │ commit [skip ci]
-                                                                  │
-                              ┌───────────────────────────────────┘
-                              ▼ (pull-based)
-                  ArgoCD trong cluster kind theo dõi repo
-                  └── tự sync manifests + pull image mới từ GHCR
+.github/workflows/
+  _ci-checks.yml   reusable: unit test 3 service + SonarCloud (Quality Gate)
+  ci.yml           PR / feature|hotfix push  → checks + build thử + Trivy (KHONG deploy)
+  cd.yml           push develop|main          → checks + build+push GHCR + bump overlay
+  release.yml      tag v*                      → build image :vX.Y.Z + GitHub Release
 ```
 
-- **test**: chạy unit test cả 3 service, xuất coverage cho SonarCloud.
-- **sonarcloud**: quét chất lượng mã trên SonarCloud (bản cloud của SonarQube).
-- **build-push**: build Docker image từng service (matrix), quét lỗ hổng bằng
-  Trivy, push lên GitHub Container Registry với tag là commit SHA và `latest`.
-- **update-manifests**: cập nhật `newTag` trong `k8s/kustomization.yaml` theo
-  commit SHA rồi commit lại repo (`[skip ci]` để không kích hoạt lại pipeline).
-- **ArgoCD** (không phải job của workflow): chạy trong cluster, phát hiện
-  commit thay đổi manifests và tự đồng bộ — mô hình GitOps pull-based, git là
-  nguồn chân lý duy nhất của trạng thái cluster.
+```text
+develop:  PR ─► ci.yml (validate)  ──merge──► cd.yml ─► GHCR :dev-<sha> ─► bump overlays/dev
+main:     PR ─► ci.yml (validate)  ──merge──► cd.yml ─► GHCR :<sha>     ─► bump overlays/prod
+tag vX.Y.Z ──────────────────────────────────► release.yml ─► GHCR :vX.Y.Z + GitHub Release
+                                                          │
+                              ┌───────────────────────────┘ (pull-based)
+                              ▼
+        ArgoCD theo dõi repo: app kanban-dev (nhánh develop) + kanban-prod (nhánh main)
+        └── tự sync overlay tương ứng + pull image mới từ GHCR
+```
 
-Pull request chỉ chạy test + SonarCloud; build và update manifests chỉ chạy
-khi push vào `main`.
+- **ci.yml**: chạy trên PR và nhánh feature/hotfix — test, SonarCloud, build thử
+  image + Trivy. Không push image, không deploy. Dùng làm điều kiện merge.
+- **cd.yml**: khi merge vào `develop`/`main` — chạy lại checks, build + push image
+  lên GHCR, cập nhật `newTag` trong overlay tương ứng rồi commit `[skip ci]`.
+- **release.yml**: khi gắn tag `vX.Y.Z` — build image gắn version, tạo GitHub
+  Release kèm changelog tự động.
+- **ArgoCD**: pull-based, git là nguồn chân lý; mỗi môi trường một Application.
+
+## Tái sử dụng manifests bằng Kustomize
+
+```text
+k8s/
+  base/                manifest gốc (không gắn namespace/tag)
+  overlays/dev/        namespace kanban-dev, 1 replica, NodePort 30080
+  overlays/prod/       namespace kanban-prod, 2 replica, NodePort 30090
+```
 
 ## Chuẩn bị
 
@@ -68,23 +91,22 @@ name: kanban
 nodes:
   - role: control-plane
     extraPortMappings:
-      - containerPort: 30080
+      - containerPort: 30080   # dev
         hostPort: 30080
+        protocol: TCP
+      - containerPort: 30090   # prod
+        hostPort: 30090
         protocol: TCP
   - role: worker
 EOF
 kind create cluster --config kind-kanban.yaml
 ```
 
-Port 30080 được map ra máy host để truy cập frontend qua NodePort.
-
 ### 2. SonarCloud
 
-1. Đăng nhập <https://sonarcloud.io> bằng tài khoản GitHub.
-2. Import repository này, lấy `organization` và `projectKey` rồi cập nhật
-   vào `sonar-project.properties`.
-3. Tắt Automatic Analysis (Administration → Analysis Method) để dùng CI.
-4. Tạo token (My Account → Security) và thêm vào GitHub repo secret
+1. Đăng nhập <https://sonarcloud.io> bằng tài khoản GitHub, import repo này.
+2. Tắt Automatic Analysis (Administration → Analysis Method) để dùng CI.
+3. Tạo token (My Account → Security) và thêm vào GitHub repo secret
    `SONAR_TOKEN`.
 
 ### 3. ArgoCD (GitOps)
@@ -94,48 +116,43 @@ kubectl create namespace argocd
 kubectl apply -n argocd --server-side \
   -f https://raw.githubusercontent.com/argoproj/argo-cd/stable/manifests/install.yaml
 
-# Dang ky ung dung kanban voi ArgoCD
-kubectl apply -f argocd/application.yaml
+# Dang ky 2 ung dung: dev (nhanh develop) va prod (nhanh main)
+kubectl apply -f argocd/app-dev.yaml
+kubectl apply -f argocd/app-prod.yaml
 ```
 
 Mở giao diện ArgoCD:
 
 ```bash
 kubectl -n argocd port-forward svc/argocd-server 8081:443
-# user: admin, mat khau:
 kubectl -n argocd get secret argocd-initial-admin-secret \
-  -o jsonpath='{.data.password}' | base64 -d
+  -o jsonpath='{.data.password}' | base64 -d   # mat khau cho user admin
 ```
 
 ### 4. Cho phép cluster pull image từ GHCR
 
-Sau lần push image đầu tiên, vào trang GitHub → Packages → từng package
-(`kanban-frontend`, `kanban-task-service`, `kanban-stats-service`) →
-**Package settings → Change visibility → Public** để kubelet pull được image
-mà không cần imagePullSecret.
+Sau lần push image đầu tiên, vào GitHub → Packages → từng package
+(`kanban-*`) → **Package settings → Change visibility → Public**.
 
 ## Chạy thử local (không cần CI)
 
 ```bash
-# Unit test
 (cd task-service && pip install -r requirements-dev.txt && pytest)
 (cd stats-service && pip install -r requirements-dev.txt && pytest)
 (cd frontend && npm install && npm test)
 
-# Build image và deploy vào kind
 for svc in frontend task-service stats-service; do
-  docker build -t ghcr.io/<owner>/kanban-$svc:latest $svc
-  kind load docker-image ghcr.io/<owner>/kanban-$svc:latest --name kanban
+  docker build -t ghcr.io/nghiant05/kanban-$svc:dev-latest $svc
+  kind load docker-image ghcr.io/nghiant05/kanban-$svc:dev-latest --name kanban
 done
-kubectl apply -f k8s/namespace.yaml
-kubectl apply -f k8s/
+kubectl apply -k k8s/overlays/dev
 ```
 
-Mở <http://localhost:30080> để dùng bảng Kanban.
+Mở <http://localhost:30080> (dev) hoặc <http://localhost:30090> (prod).
 
 ## Xóa tài nguyên
 
 ```bash
-kubectl delete namespace kanban   # xóa app
-kind delete cluster --name kanban # xóa cả cluster
+kubectl delete namespace kanban-dev kanban-prod
+kind delete cluster --name kanban
 ```

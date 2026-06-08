@@ -1,0 +1,57 @@
+name: CI
+
+# Chay khi mo PR vao develop/main, va khi push len nhanh feature/hotfix.
+# Chi KIEM TRA (test, sonar, build thu, trivy) — KHONG push image, KHONG deploy.
+on:
+  pull_request:
+    branches:
+      - develop
+      - main
+  push:
+    branches:
+      - "feature/**"
+      - "hotfix/**"
+
+permissions:
+  contents: read
+
+jobs:
+  checks:
+    uses: ./.github/workflows/_ci-checks.yml
+    secrets: inherit
+
+  build-check:
+    name: Build thu va quet Trivy
+    needs: checks
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        service:
+          - frontend
+          - task-service
+          - stats-service
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Build image (khong push)
+        run: docker build -t kanban-${{ matrix.service }}:ci ${{ matrix.service }}
+
+      - name: Trivy scan image
+        uses: aquasecurity/trivy-action@v0.36.0
+        with:
+          image-ref: kanban-${{ matrix.service }}:ci
+          format: table
+          severity: HIGH,CRITICAL
+          exit-code: "0"
+          output: trivy-${{ matrix.service }}.txt
+
+      - name: In ket qua Trivy
+        run: cat trivy-${{ matrix.service }}.txt
+
+      - name: Luu report Trivy
+        uses: actions/upload-artifact@v4
+        with:
+          name: trivy-${{ matrix.service }}
+          path: trivy-${{ matrix.service }}.txt
+          retention-days: 7

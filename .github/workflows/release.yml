@@ -1,0 +1,70 @@
+name: Release
+
+# Chay khi gan tag vX.Y.Z (tren nhanh main).
+# Tao ban phat hanh chinh thuc: image co version + GitHub Release kem changelog.
+on:
+  push:
+    tags:
+      - "v*"
+
+env:
+  IMAGE_PREFIX: ghcr.io/nghiant05
+
+permissions:
+  contents: read
+
+jobs:
+  build-release:
+    name: Build image release
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    strategy:
+      matrix:
+        service:
+          - frontend
+          - task-service
+          - stats-service
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Login GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build va push image theo version
+        run: |
+          docker build \
+            -t $IMAGE_PREFIX/kanban-${{ matrix.service }}:${GITHUB_REF_NAME} \
+            -t $IMAGE_PREFIX/kanban-${{ matrix.service }}:stable \
+            ${{ matrix.service }}
+          docker push $IMAGE_PREFIX/kanban-${{ matrix.service }}:${GITHUB_REF_NAME}
+          docker push $IMAGE_PREFIX/kanban-${{ matrix.service }}:stable
+
+  github-release:
+    name: Tao GitHub Release
+    needs: build-release
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Tao Release kem changelog tu dong
+        uses: softprops/action-gh-release@v2
+        with:
+          generate_release_notes: true
+          name: Kanban ${{ github.ref_name }}
+          body: |
+            Image phat hanh tren GHCR (tag `${{ github.ref_name }}`):
+            - `${{ env.IMAGE_PREFIX }}/kanban-frontend:${{ github.ref_name }}`
+            - `${{ env.IMAGE_PREFIX }}/kanban-task-service:${{ github.ref_name }}`
+            - `${{ env.IMAGE_PREFIX }}/kanban-stats-service:${{ github.ref_name }}`

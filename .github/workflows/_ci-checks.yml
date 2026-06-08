@@ -1,0 +1,82 @@
+# Reusable workflow: unit test + SonarCloud. Duoc ci.yml va cd.yml goi lai.
+name: CI checks
+
+on:
+  workflow_call:
+
+jobs:
+  test:
+    name: Unit test
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Cai Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Cai Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Test task-service
+        working-directory: task-service
+        run: |
+          pip install --disable-pip-version-check -r requirements-dev.txt
+          pytest --cov=app --cov-report=xml --cov-report=term --junitxml=pytest-report.xml
+
+      - name: Test stats-service
+        working-directory: stats-service
+        run: |
+          pip install --disable-pip-version-check -r requirements-dev.txt
+          pytest --cov=app --cov-report=xml --cov-report=term --junitxml=pytest-report.xml
+
+      - name: Test frontend
+        working-directory: frontend
+        run: |
+          npm install
+          npm test -- --test-reporter=spec --test-reporter-destination=stdout \
+            --test-reporter=junit --test-reporter-destination=junit-report.xml
+
+      - name: Luu test reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-reports
+          path: |
+            task-service/pytest-report.xml
+            stats-service/pytest-report.xml
+            frontend/junit-report.xml
+          retention-days: 7
+
+      - name: Luu coverage cho SonarCloud
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage
+          path: |
+            task-service/coverage.xml
+            stats-service/coverage.xml
+          retention-days: 1
+
+  sonarcloud:
+    name: SonarCloud scan
+    needs: test
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Tai coverage
+        uses: actions/download-artifact@v4
+        with:
+          name: coverage
+
+      - name: SonarCloud scan
+        uses: SonarSource/sonarqube-scan-action@v5
+        env:
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
