@@ -38,7 +38,8 @@ jobs:
         working-directory: frontend
         run: |
           npm install
-          npm test -- --test-reporter=spec --test-reporter-destination=stdout \
+          npx c8 --reporter=lcov --reporter=text \
+            node --test --test-reporter=spec --test-reporter-destination=stdout \
             --test-reporter=junit --test-reporter-destination=junit-report.xml
 
       - name: Luu test reports
@@ -59,6 +60,7 @@ jobs:
           path: |
             task-service/coverage.xml
             stats-service/coverage.xml
+            frontend/coverage/lcov.info
           retention-days: 1
 
   sonarcloud:

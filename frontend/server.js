@@ -29,7 +29,10 @@ async function callService(baseUrl, fixedPath, req, res) {
   }
 }
 
-function createApp() {
+function createApp(options = {}) {
+  const taskUrl = options.taskServiceUrl || TASK_SERVICE_URL;
+  const statsUrl = options.statsServiceUrl || STATS_SERVICE_URL;
+
   const app = express();
   app.use(express.json());
   app.use(express.static(path.join(__dirname, 'public')));
@@ -39,17 +42,17 @@ function createApp() {
   });
 
   // Cac route khai bao tuong minh, duong dan toi service la hang so co dinh.
-  app.get('/api/tasks', (req, res) => callService(TASK_SERVICE_URL, '/api/tasks', req, res));
-  app.post('/api/tasks', (req, res) => callService(TASK_SERVICE_URL, '/api/tasks', req, res));
+  app.get('/api/tasks', (req, res) => callService(taskUrl, '/api/tasks', req, res));
+  app.post('/api/tasks', (req, res) => callService(taskUrl, '/api/tasks', req, res));
 
   app.all('/api/tasks/:id', (req, res) => {
     if (!TASK_ID_PATTERN.test(req.params.id)) {
       return res.status(400).json({ error: 'invalid task id' });
     }
-    return callService(TASK_SERVICE_URL, `/api/tasks/${req.params.id}`, req, res);
+    return callService(taskUrl, `/api/tasks/${req.params.id}`, req, res);
   });
 
-  app.get('/api/stats', (req, res) => callService(STATS_SERVICE_URL, '/api/stats', req, res));
+  app.get('/api/stats', (req, res) => callService(statsUrl, '/api/stats', req, res));
 
   return app;
 }
