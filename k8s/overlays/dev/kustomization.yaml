@@ -10,8 +10,8 @@ resources:
 # CD (push nhanh develop) cap nhat newTag theo commit SHA
 images:
   - name: ghcr.io/nghiant05/kanban-frontend
-    newTag: dev-latest
+    newTag: dev-dae372e4915c707b3ca76f9906c6334c4fa62d05
   - name: ghcr.io/nghiant05/kanban-task-service
-    newTag: dev-latest
+    newTag: dev-dae372e4915c707b3ca76f9906c6334c4fa62d05
   - name: ghcr.io/nghiant05/kanban-stats-service
-    newTag: dev-latest
+    newTag: dev-dae372e4915c707b3ca76f9906c6334c4fa62d05
