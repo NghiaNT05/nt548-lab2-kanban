@@ -6,17 +6,11 @@ const TASK_SERVICE_URL = process.env.TASK_SERVICE_URL || 'http://localhost:5001'
 const STATS_SERVICE_URL = process.env.STATS_SERVICE_URL || 'http://localhost:5002';
 const PORT = process.env.PORT || 3000;
 
-// Ghep URL service voi DUONG DAN da chuan hoa cua request.
-// Chi lay pathname + query tu URL goc de tranh SSRF (khong cho ghi de host).
-function buildTargetUrl(baseUrl, originalUrl) {
-  const base = new URL(baseUrl);
-  const requested = new URL(originalUrl, base);
-  const target = new URL(requested.pathname + requested.search, base);
-  return target.toString();
-}
+// Chi cho phep task id dang hex 32 ky tu (uuid4 hex) de tranh chen duong dan.
+const TASK_ID_PATTERN = /^[a-f0-9]{32}$/;
 
-// Chuyen tiep request sang service dich va tra nguyen ven ket qua.
-async function proxyTo(baseUrl, req, res) {
+// Goi service phia sau voi duong dan CO DINH do server tu dung (khong tu URL nguoi dung).
+async function callService(baseUrl, fixedPath, req, res) {
   try {
     const init = {
       method: req.method,
@@ -25,7 +19,7 @@ async function proxyTo(baseUrl, req, res) {
     if (req.method !== 'GET' && req.method !== 'HEAD') {
       init.body = JSON.stringify(req.body);
     }
-    const upstream = await fetch(buildTargetUrl(baseUrl, req.originalUrl), init);
+    const upstream = await fetch(`${baseUrl}${fixedPath}`, init);
     const body = await upstream.text();
     res.status(upstream.status).type('application/json').send(body);
   } catch (err) {
@@ -42,8 +36,18 @@ function createApp() {
     res.json({ status: 'ok', service: 'frontend' });
   });
 
-  app.use('/api/tasks', (req, res) => proxyTo(TASK_SERVICE_URL, req, res));
-  app.use('/api/stats', (req, res) => proxyTo(STATS_SERVICE_URL, req, res));
+  // Cac route khai bao tuong minh, duong dan toi service la hang so co dinh.
+  app.get('/api/tasks', (req, res) => callService(TASK_SERVICE_URL, '/api/tasks', req, res));
+  app.post('/api/tasks', (req, res) => callService(TASK_SERVICE_URL, '/api/tasks', req, res));
+
+  app.all('/api/tasks/:id', (req, res) => {
+    if (!TASK_ID_PATTERN.test(req.params.id)) {
+      return res.status(400).json({ error: 'invalid task id' });
+    }
+    return callService(TASK_SERVICE_URL, `/api/tasks/${req.params.id}`, req, res);
+  });
+
+  app.get('/api/stats', (req, res) => callService(STATS_SERVICE_URL, '/api/stats', req, res));
 
   return app;
 }
@@ -54,4 +58,4 @@ if (require.main === module) {
   });
 }
 
-module.exports = { createApp, buildTargetUrl };
+module.exports = { createApp, TASK_ID_PATTERN };
