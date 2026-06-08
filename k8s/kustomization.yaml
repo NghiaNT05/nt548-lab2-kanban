@@ -13,8 +13,8 @@ resources:
 # CI cap nhat newTag theo commit SHA; ArgoCD thay doi nay va tu sync
 images:
   - name: ghcr.io/nghiant05/kanban-frontend
-    newTag: 7b8e71f21a2c8b28bf39b4cde6c331615dca8ad3
+    newTag: 07fde7999d9a08bf456981179f9f29dab4916279
   - name: ghcr.io/nghiant05/kanban-task-service
-    newTag: 7b8e71f21a2c8b28bf39b4cde6c331615dca8ad3
+    newTag: 07fde7999d9a08bf456981179f9f29dab4916279
   - name: ghcr.io/nghiant05/kanban-stats-service
-    newTag: 7b8e71f21a2c8b28bf39b4cde6c331615dca8ad3
+    newTag: 07fde7999d9a08bf456981179f9f29dab4916279
