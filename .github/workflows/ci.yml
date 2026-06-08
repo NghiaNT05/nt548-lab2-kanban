@@ -9,6 +9,7 @@ on:
       - main
   push:
     branches:
+      - main
       - "feature/**"
       - "hotfix/**"
 

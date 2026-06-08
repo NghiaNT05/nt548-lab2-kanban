@@ -13,8 +13,8 @@ patches:
 # CD (merge vao main) cap nhat newTag theo commit SHA / release version
 images:
   - name: ghcr.io/nghiant05/kanban-frontend
-    newTag: latest
+    newTag: stable
   - name: ghcr.io/nghiant05/kanban-task-service
-    newTag: latest
+    newTag: stable
   - name: ghcr.io/nghiant05/kanban-stats-service
-    newTag: latest
+    newTag: stable

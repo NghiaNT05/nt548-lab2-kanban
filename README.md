@@ -52,23 +52,34 @@ Luồng: `feature/*` → PR vào `develop` → kiểm tra trên dev → PR `deve
 ```
 
 ```text
-develop:  PR ─► ci.yml (validate)  ──merge──► cd.yml ─► GHCR :dev-<sha> ─► bump overlays/dev
-main:     PR ─► ci.yml (validate)  ──merge──► cd.yml ─► GHCR :<sha>     ─► bump overlays/prod
-tag vX.Y.Z ──────────────────────────────────► release.yml ─► GHCR :vX.Y.Z + GitHub Release
+develop:  PR ─► ci.yml (validate) ──merge──► cd.yml ─► GHCR :dev-<sha> ─► bump overlays/dev
+main:     PR ─► ci.yml (validate) ──merge──► ci.yml validate (KHONG deploy)
+tag vX.Y.Z ─► release.yml ─► GHCR :vX.Y.Z + GitHub Release ─► [APPROVAL] ─► bump overlays/prod
                                                           │
                               ┌───────────────────────────┘ (pull-based)
                               ▼
-        ArgoCD theo dõi repo: app kanban-dev (nhánh develop) + kanban-prod (nhánh main)
+        ArgoCD: app kanban-dev (nhánh develop) + kanban-prod (nhánh main)
         └── tự sync overlay tương ứng + pull image mới từ GHCR
 ```
 
-- **ci.yml**: chạy trên PR và nhánh feature/hotfix — test, SonarCloud, build thử
-  image + Trivy. Không push image, không deploy. Dùng làm điều kiện merge.
-- **cd.yml**: khi merge vào `develop`/`main` — chạy lại checks, build + push image
-  lên GHCR, cập nhật `newTag` trong overlay tương ứng rồi commit `[skip ci]`.
-- **release.yml**: khi gắn tag `vX.Y.Z` — build image gắn version, tạo GitHub
-  Release kèm changelog tự động.
+- **ci.yml**: trên PR và push `main`/feature/hotfix — test, SonarCloud (Quality
+  Gate **chặn** nếu đỏ), build thử + Trivy. Không push image, không deploy.
+- **cd.yml**: khi merge vào `develop` — build + push `:dev-<sha>` lên GHCR, cập
+  nhật overlay dev rồi commit `[skip ci]`. Chỉ deploy môi trường dev.
+- **release.yml**: khi gắn tag `vX.Y.Z` — build image version, tạo GitHub Release,
+  rồi **chờ duyệt** (GitHub Environment `production`) trước khi cập nhật overlay
+  prod. Đây là đường deploy production duy nhất.
 - **ArgoCD**: pull-based, git là nguồn chân lý; mỗi môi trường một Application.
+
+### Quy trình phát hành production
+
+```bash
+# Sau khi develop on dinh, mo PR develop -> main, merge (main duoc validate)
+git checkout main && git pull
+git tag v1.0.0
+git push origin v1.0.0     # kich hoat release.yml: build + Release + cho duyet
+# Vao GitHub Actions, bam Approve o job deploy-prod -> ArgoCD deploy prod
+```
 
 ## Tái sử dụng manifests bằng Kustomize
 

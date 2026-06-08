@@ -1,7 +1,9 @@
-name: Release
+name: Release (prod)
 
-# Chay khi gan tag vX.Y.Z (tren nhanh main).
-# Tao ban phat hanh chinh thuc: image co version + GitHub Release kem changelog.
+# Chay khi gan tag vX.Y.Z tren main:
+#   1. build image gan version + push GHCR
+#   2. tao GitHub Release kem changelog
+#   3. CHO DUYET (environment production) roi cap nhat overlay prod -> ArgoCD deploy
 on:
   push:
     tags:
@@ -68,3 +70,30 @@ jobs:
             - `${{ env.IMAGE_PREFIX }}/kanban-frontend:${{ github.ref_name }}`
             - `${{ env.IMAGE_PREFIX }}/kanban-task-service:${{ github.ref_name }}`
             - `${{ env.IMAGE_PREFIX }}/kanban-stats-service:${{ github.ref_name }}`
+
+  deploy-prod:
+    name: Deploy prod (cho duyet)
+    needs: build-release
+    runs-on: ubuntu-latest
+    # Environment 'production' co required reviewer -> job dung cho ban bam Approve
+    environment: production
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout main
+        uses: actions/checkout@v4
+        with:
+          ref: main
+
+      - name: Cap nhat overlay prod sang version vua phat hanh
+        run: |
+          sed -i "s/newTag: .*/newTag: ${GITHUB_REF_NAME}/" k8s/overlays/prod/kustomization.yaml
+          git diff
+
+      - name: Commit va push
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add k8s/overlays/prod/kustomization.yaml
+          git commit -m "Release ${GITHUB_REF_NAME} to prod [skip ci]"
+          git push origin main
