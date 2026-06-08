@@ -20,8 +20,10 @@ async function callService(baseUrl, fixedPath, req, res) {
       init.body = JSON.stringify(req.body);
     }
     const upstream = await fetch(`${baseUrl}${fixedPath}`, init);
-    const body = await upstream.text();
-    res.status(upstream.status).type('application/json').send(body);
+    const text = await upstream.text();
+    // Parse roi tra ve bang res.json (du lieu co cau truc) thay vi phan chieu chuoi tho.
+    const payload = text ? JSON.parse(text) : {};
+    res.status(upstream.status).set('X-Content-Type-Options', 'nosniff').json(payload);
   } catch (err) {
     res.status(502).json({ error: 'upstream unavailable', detail: err.message });
   }
